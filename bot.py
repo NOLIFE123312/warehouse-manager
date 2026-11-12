@@ -49,7 +49,9 @@ dp = Dispatcher()
 main_menu = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="📦 Управление складом")],
-        [KeyboardButton(text="➕ Добавить новый товар")]
+        [KeyboardButton(text="➕ Добавить новый товар")],
+        [KeyboardButton(text="💰 Бюджет склада")],
+        [KeyboardButton(text="🚨 Список на закупку")]
     ],
     resize_keyboard=True
 )
@@ -88,6 +90,30 @@ async def cmd_start(message: types.Message, state: FSMContext):
 async def show_warehouse(message: types.Message):
     text, keyboard = build_warehouse_panel()
     await message.answer(text, reply_markup=keyboard)
+
+@dp.message(F.text == "💰 Бюджет склада")
+async def calc_budget(message:types.Message):
+    db = Session()
+    products = db.query(Product).all()
+    db.close()
+    total_sum = 0
+    for item in products:
+        total_sum += item.price * item.stock
+    await message.answer(
+            f"Общий бюджет склада составляет {total_sum} руб.")
+
+@dp.message(F.text =="🚨 Список на закупку")
+async def check_low_stock(message:types.Message):
+    db = Session()
+    low_product = db.query(Product).filter(Product.stock <=5).all()
+    db.close()
+    if not low_product:
+        await message.answer ("✅ На складе всего достаточно, закупка не требуется!")
+        return
+    report = "🚨 Нужно срочно докупить:\n\n"
+    for item in low_product:
+        report += f"{item.name} - осталось {item.stock} шт.\n"
+    await message.answer(report)
 
 # --- НАЧАЛО ДИАЛОГА ДОБАВЛЕНИЯ ТОВАРА (FSM) ---
 
