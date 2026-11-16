@@ -1,0 +1,18 @@
+services:
+  bot:
+    build: .
+    command: python bot.py
+    env_file:
+      - .env
+    volumes:
+      - ./warehouse_db.sqlite:/app/warehouse_db/sqlite
+    restart: unless-stopped
+
+  api:
+    build: .
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./warehose_db.sqlite:/app/warehouse_db.sqlite
+    restart: unless-stopped
