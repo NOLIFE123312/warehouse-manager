@@ -1,26 +1,15 @@
 from fastapi import FastAPI
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.orm import declarative_base, sessionmaker
 from pydantic import BaseModel
-
-# Подключаемся к ТОЙ ЖЕ САМОЙ базе склада, с которой работает наш бот
-engine = create_engine("sqlite:///warehouse_db.sqlite")
-Base = declarative_base()
-
-class Product(Base):
-    __tablename__ = "products"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    price = Column(Integer, nullable=False)
-    stock = Column(Integer, default=0)
-
-Session = sessionmaker(bind=engine)
+from database import Product, Session
+from rag import ask_rag
 
 class ProductCreate(BaseModel):
     name: str
     price: int
     stock: int
 
+class QuestionRequest(BaseModel):
+    question: str
 # Создаем приложение FastAPI
 app = FastAPI(title="Warehouse API", description="API управления складом табака")
 
@@ -88,5 +77,9 @@ def delete_product(product_id: int):
     db.close()
 
     return {"status": "Удалено!",
-            "product": deleted_name
+            "product": delete_product
     }
+@app.post("/ask-ai")
+def ask_ai(data:QuestionRequest):
+    result = ask_rag(data.question)
+    return result

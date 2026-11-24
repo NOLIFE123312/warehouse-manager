@@ -4,39 +4,29 @@ import os
 import socket
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton,
-    InlineKeyboardMarkup, InlineKeyboardButton
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    Message
 )
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
 from aiogram.client.session.aiohttp import AiohttpSession
-from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.orm import declarative_base, sessionmaker
+from rag import ask_rag
+from database import Product, Session
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
-
-# Подключаемся к SQL-базе
-engine = create_engine("sqlite:///warehouse_db.sqlite")
-Base = declarative_base()
-
-class Product(Base):
-    __tablename__ = "products"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    price = Column(Integer, nullable=False)
-    stock = Column(Integer, default=0)
-
-Base.metadata.create_all(engine)
-Session = sessionmaker(bind=engine)
 
 # Описываем шаги диалога (Машина состояний FSM)
 class AddProduct(StatesGroup):
     name = State()   # Шаг 1: ждем название
     price = State()  # Шаг 2: ждем цену
     stock = State()  # Шаг 3: ждем остаток
+
+class AskAI(StatesGroup):
+    waiting_for_question = State()
 
 # Настройка бота с принудительным IPv4
 net_session = AiohttpSession()
@@ -51,7 +41,8 @@ main_menu = ReplyKeyboardMarkup(
         [KeyboardButton(text="📦 Управление складом")],
         [KeyboardButton(text="➕ Добавить новый товар")],
         [KeyboardButton(text="💰 Бюджет склада")],
-        [KeyboardButton(text="🚨 Список на закупку")]
+        [KeyboardButton(text="🚨 Список на закупку")],
+        [KeyboardButton(text="🤖 ИИ-кальянщик")]
     ],
     resize_keyboard=True
 )
@@ -169,6 +160,38 @@ async def process_stock(message: types.Message, state: FSMContext):
     # Сразу показываем панель со свежими Inline-кнопками
     text, keyboard = build_warehouse_panel()
     await message.answer(text, reply_markup=keyboard)
+
+# --- ДИАЛОГ С ИИ-КАЛЬЯНЩИКОМ (FSM) ---
+
+# Шаг 1: Нажатие на кнопку переводит пользователя в режим ожидания вопроса
+@dp.message(F.text == "🤖 ИИ-кальянщик")
+async def start_ask_ai(message: types.Message, state: FSMContext):
+    await state.set_state(AskAI.waiting_for_question)
+    await message.answer(
+        "🤖 Напиши, какой вкус или крепость хочет гость — подберу микс по базе:"
+    )
+
+
+# Шаг 2: Ловим следующий текст, вызываем RAG и выходим из режима ожидания
+@dp.message(AskAI.waiting_for_question)
+async def process_ai_question(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("Напиши запрос обычным текстом.")
+        return
+
+    wait_msg = await message.answer("⏳ Подбираю микс по базе склада...")
+
+    try:
+        result = await asyncio.to_thread(ask_rag, message.text)
+        tobaccos = ", ".join(result["matched_tobaccos"])
+        await wait_msg.edit_text(
+            f"🤖 Рекомендация:\n{result['ai_answer']}\n\n"
+            f"🔍 Найдено в базе: {tobaccos}"
+        )
+    except Exception as e:
+        await wait_msg.edit_text(f"❌ Не удалось получить ответ от ИИ: {e}")
+    finally:
+        await state.clear()
 
 # --- ОБРАБОТКА INLINE-КНОПОК (+5 и -1) ---
 
